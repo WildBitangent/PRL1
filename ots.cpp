@@ -1,134 +1,253 @@
 /*
- * algorithm: odd-even transposition sort (alg. ~40 lines long)
- * author: jakub zak
+ * 2. PRL project, Odd-even transposition sort
+ *
+ * author: Bc. Matej Karas
+ * email: xkaras34@stud.fit.vutbr.cz
  *
  */
 
-#include <mpi.h>
+#include "ots.h"
 #include <iostream>
 #include <fstream>
+#include <chrono>
 
-using namespace std;
-constexpr int TAG = 0;
- 
+using namespace std::chrono;
+using clk = high_resolution_clock;
+
 int main(int argc, char *argv[])
 {
-	int numprocs;               //pocet procesoru
-	int myid;                   //muj rank
-	int neighnumber;            //hodnota souseda
-	int mynumber;               //moje hodnota
-	MPI_Status stat;            //struct- obsahuje kod- source, tag, error
+	Process process(argc, argv);
 
-	//MPI INIT
-	std::cout << "KURWA" << std::endl;
-	MPI_Init(&argc,&argv);                          // inicializace MPI 
-	MPI_Comm_size(MPI_COMM_WORLD, &numprocs);       // zjistĂ­me, kolik procesĹŻ bÄ›ĹľĂ­ 
-	MPI_Comm_rank(MPI_COMM_WORLD, &myid);
- 
-	//NACTENI SOUBORU
-	/* -proc s rankem 0 nacita vsechny hodnoty
-	 * -postupne rozesle jednotlive hodnoty vsem i sobe
-	*/
-	if(myid == 0){
-		char input[]= "numbers";                          //jmeno souboru    
-		int number;                                     //hodnota pri nacitani souboru
-		int invar= 0;                                   //invariant- urcuje cislo proc, kteremu se bude posilat
-		fstream fin;                                    //cteni ze souboru
-		fin.open(input, ios::in);                   
+	#if TOPOLOGY
+		return topology(process);
+	#else
+		return sendrecv(process);
+	#endif
+}
 
-		while(fin.good()){
-			number= fin.get();
-			if(!fin.good()) break;                      //nacte i eof, takze vyskocim
-			cout<<invar<<":"<<number<<endl;             //kdo dostane kere cislo
-			MPI_Send(&number, 1, MPI_INT, invar, TAG, MPI_COMM_WORLD); //buffer,velikost,typ,rank prijemce,tag,komunikacni skupina
-			invar++;
-		}//while
-		fin.close();                                
-	}//nacteni souboru
+int sendrecv(Process& process)
+{
+	uint8_t myNumber;
+	uint8_t neighbourNumber;
+	
+	// Set ranks for even/odd targets
+	int oddTargetRank = process.rank() + (process.isOdd() & 1 ? 1 : -1);
+	int evenTargetRank = process.rank() + (process.isOdd() & 1 ? -1 : 1);
 
-	//PRIJETI HODNOTY CISLA
-	//vsechny procesory(vcetne mastera) prijmou hodnotu a zahlasi ji
-	MPI_Recv(&mynumber, 1, MPI_INT, 0, TAG, MPI_COMM_WORLD, &stat); //buffer,velikost,typ,rank odesilatele,tag, skupina, stat
-	//cout<<"i am:"<<myid<<" my number is:"<<mynumber<<endl;
- 
-	//LIMIT PRO INDEXY
-	int oddlimit= 2*(numprocs/2)-1;                 //limity pro sude
-	int evenlimit= 2*((numprocs-1)/2);              //liche
-	int halfcycles= numprocs/2;
-	int cycles=0;                                   //pocet cyklu pro pocitani slozitosti
-	//if(myid == 0) cout<<oddlimit<<":"<<evenlimit<<endl;
+	if (oddTargetRank < 0 || oddTargetRank == process.worldSize())
+		oddTargetRank = MPI_PROC_NULL;
+	if (evenTargetRank == process.worldSize())
+		evenTargetRank = MPI_PROC_NULL;
 
+	#if BENCHMARK
+		// Start clock for benchmark
+		auto start = clk::now();
+		auto begin = start;
+	#endif
 
-	//RAZENI------------chtelo by to umet pocitat cykly nebo neco na testy------
-	//cyklus pro linearitu
-	for(int j=1; j<=halfcycles; j++){
-		cycles++;           //pocitame cykly, abysme mohli udelat krasnej graf:)
-
-		//sude proc 
-		if((!(myid%2) || myid==0) && (myid<oddlimit)){
-			MPI_Send(&mynumber, 1, MPI_INT, myid+1, TAG, MPI_COMM_WORLD);          //poslu sousedovi svoje cislo
-			MPI_Recv(&mynumber, 1, MPI_INT, myid+1, TAG, MPI_COMM_WORLD, &stat);   //a cekam na nizsi
-			//cout<<"ss: "<<myid<<endl;
-		}//if sude
-		else if(myid<=oddlimit){//liche prijimaji zpravu a vraceji mensi hodnotu (to je ten swap)
-			MPI_Recv(&neighnumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD, &stat); //jsem sudy a prijimam
-
-			if(neighnumber > mynumber){                                             //pokud je leveho sous cislo vetsi
-				MPI_Send(&mynumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD);       //poslu svoje 
-				mynumber= neighnumber;                                              //a vemu si jeho
-			}
-			else MPI_Send(&neighnumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD);   //pokud je mensi nebo stejne vratim
-			//cout<<"sl: "<<myid<<endl;
-		}//else if (liche)
-		else{//sem muze vlezt jen proc, co je na konci
-		}//else
-
-		//liche proc 
-		if((myid%2) && (myid<evenlimit)){
-			MPI_Send(&mynumber, 1, MPI_INT, myid+1, TAG, MPI_COMM_WORLD);           //poslu sousedovi svoje cislo
-			MPI_Recv(&mynumber, 1, MPI_INT, myid+1, TAG, MPI_COMM_WORLD, &stat);    //a cekam na nizsi
-			//cout<<"ll: "<<myid<<endl;
-		}//if liche
-		else if(myid<=evenlimit && myid!=0){//sude prijimaji zpravu a vraceji mensi hodnotu (to je ten swap)
-			MPI_Recv(&neighnumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD, &stat); //jsem sudy a prijimam
-
-			if(neighnumber > mynumber){                                             //pokud je leveho sous cislo vetsi
-				MPI_Send(&mynumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD);       //poslu svoje 
-				mynumber= neighnumber;                                              //a vemu si jeho
-			}
-			else MPI_Send(&neighnumber, 1, MPI_INT, myid-1, TAG, MPI_COMM_WORLD);   //pokud je mensi nebo stejne vratim
-			//cout<<"ls: "<<myid<<endl;
-		}//else if (sude)
-		else{//sem muze vlezt jen proc, co je na konci
-		}//else
+	// Load numbers with root process and print them
+	std::vector<uint8_t> numbers;
+	if (process.isRoot())
+	{
+		numbers = loadNumbers("numbers");
 		
-	}//for pro linearitu
-	//RAZENI--------------------------------------------------------------------
+		#if BENCHMARK
+			std::cout << "Element count: " << process.worldSize() << std::endl;
+			std::cout << "Load time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+			start = clk::now();
+		#else
+			for (size_t i = 0; i < numbers.size() - 1; ++i)
+				std::cout << static_cast<int>(numbers[i]) << " ";
 
+			std::cout << static_cast<int>(numbers.back()) << std::endl;
+		#endif
+	}
 
-	//FINALNI DISTRIBUCE VYSLEDKU K MASTEROVI-----------------------------------
-	int* final= new int [numprocs];
-	//final=(int*) malloc(numprocs*sizeof(int));
-	for(int i=1; i<numprocs; i++){
-	   if(myid == i) MPI_Send(&mynumber, 1, MPI_INT, 0, TAG,  MPI_COMM_WORLD);
-	   if(myid == 0){
-		   MPI_Recv(&neighnumber, 1, MPI_INT, i, TAG, MPI_COMM_WORLD, &stat); //jsem 0 a prijimam
-		   final[i]=neighnumber;
-	   }//if sem master
-	}//for
+	// Scatter numbers across processes
+	MPI_Scatter(numbers.data(), 1, MPI_UINT8_T, &myNumber, 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
 
-	if(myid == 0){
-		//cout<<cycles<<endl;
-		final[0]= mynumber;
-		for(int i=0; i<numprocs; i++){
-			cout<<"proc: "<<i<<" num: "<<final[i]<<endl;
-		}//for
-	}//if vypis
-	//cout<<"i am:"<<myid<<" my number is:"<<mynumber<<endl;
-	//VYSLEDKY------------------------------------------------------------------
+	// Sort numbers
+	for (size_t i = 0; i < process.worldSize() / 2; ++i)
+	{
+		neighbourNumber = myNumber;
+		MPI_Sendrecv(&myNumber, 1, MPI_UINT8_T, oddTargetRank, 0, &neighbourNumber, 1, MPI_UINT8_T, oddTargetRank, 0, MPI_COMM_WORLD, nullptr);
+		swap(process, myNumber, neighbourNumber, ComDir::ODD);
 
- 
-	MPI_Finalize(); 
-	return 0;
+		neighbourNumber = myNumber;
+		MPI_Sendrecv(&myNumber, 1, MPI_UINT8_T, evenTargetRank, 0, &neighbourNumber, 1, MPI_UINT8_T, evenTargetRank, 0, MPI_COMM_WORLD, nullptr);
+		swap(process, myNumber, neighbourNumber, ComDir::EVEN);
+	}
 
- }//main
+	// Gather sorted numbers 
+	MPI_Gather(&myNumber, 1, MPI_UINT8_T, &numbers[0], 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
+
+	#if BENCHMARK
+		// measure time, and print
+		if (process.isRoot())
+		{
+			std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+			std::cout << "Final Time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - begin).count() << "ms" << std::endl;
+		}
+	#else
+		// Print result
+		if (process.isRoot())
+			for (const auto& num : numbers)
+				std::cout << static_cast<int>(num) << "\n";
+	#endif
+
+	return EXIT_SUCCESS;
+}
+
+int topology(Process& process)
+{
+	uint8_t myNumber;
+	uint8_t neighbourNumber;
+
+	// Load numbers with root process and print them
+	std::vector<uint8_t> numbers;
+	if (process.isRoot())
+	{
+		numbers = loadNumbers("numbers");
+		
+		for (size_t i = 0; i < numbers.size() - 1; ++i)
+			std::cout << static_cast<int>(numbers[i]) << " ";
+
+		std::cout << static_cast<int>(numbers.back()) << std::endl;
+	}
+	
+	#if BENCHMARK
+		// Start clock for benchmark
+		auto start = clk::now();
+	#endif
+
+	// Create topologies
+	auto oddCom = oddTopology(process);
+	auto evenCom = evenTopology(process);
+
+	#if BENCHMARK
+		// topology creation time
+		if (process.isRoot())
+			std::cout << "Topology: " << duration_cast<std::chrono::duration<float>>(clk::now() - start).count() << "s" << std::endl;
+		start = clk::now();
+	#endif
+
+	// Scatter numbers across processes
+	MPI_Scatter(numbers.data(), 1, MPI_UINT8_T, &myNumber, 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
+
+	// Sort numbers
+	for (size_t i = 0; i < process.worldSize() / 2; ++i)
+	{
+		neighbourNumber = myNumber;
+		MPI_Neighbor_alltoall(&myNumber, 1, MPI_UINT8_T, &neighbourNumber, 1, MPI_UINT8_T, oddCom);
+		swap(process, myNumber, neighbourNumber, ComDir::ODD);
+
+		neighbourNumber = myNumber;
+		MPI_Neighbor_alltoall(&myNumber, 1, MPI_UINT8_T, &neighbourNumber, 1, MPI_UINT8_T, evenCom);
+		swap(process, myNumber, neighbourNumber, ComDir::EVEN);
+	}
+
+	// Gather sorted numbers 
+	MPI_Gather(&myNumber, 1, MPI_UINT8_T, &numbers[0], 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
+
+	#if BENCHMARK
+		// measure time, and print
+		if (process.isRoot())
+			std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float>>(clk::now() - start).count() << "s" << std::endl;
+	#endif
+
+	// Print result
+	if (process.isRoot())
+		for (const auto& num : numbers)
+			std::cout << static_cast<int>(num) << "\n";
+
+	// todo RAII
+	MPI_Comm_free(&oddCom);
+	MPI_Comm_free(&evenCom);
+
+	return EXIT_SUCCESS;
+}
+
+////////////////////////////////////////////////
+/// Functions
+////////////////////////////////////////////////
+std::vector<uint8_t> loadNumbers(const std::string& path)
+{
+	std::ifstream source(path, std::ios::in | std::ios::binary);
+	return std::vector<uint8_t>(std::istreambuf_iterator<char>(source), std::istreambuf_iterator<char>());
+}
+
+MPI_Comm oddTopology(Process& proc)
+{
+	MPI_Comm newCom;
+	int target = proc.rank() + (proc.rank() & 1 ? 1 : -1);
+	int degree = 1;
+
+	if (proc.rank() == 0 || target == proc.worldSize())
+		MPI_Dist_graph_create(MPI_COMM_WORLD, 0, nullptr, nullptr, nullptr, nullptr, MPI_INFO_NULL, false, &newCom);
+	else
+		MPI_Dist_graph_create(MPI_COMM_WORLD, 1, &proc.rank(), &degree, &target, &degree, MPI_INFO_NULL, false, &newCom);
+
+	return newCom;
+}
+
+MPI_Comm evenTopology(Process& proc)
+{
+	MPI_Comm newCom;
+	int target = proc.rank() + (proc.rank() & 1 ? -1 : 1);
+	int degree = 1;
+
+	if (target == proc.worldSize())
+		MPI_Dist_graph_create(MPI_COMM_WORLD, 0, nullptr, nullptr, nullptr, nullptr, MPI_INFO_NULL, false, &newCom);
+	else
+		MPI_Dist_graph_create(MPI_COMM_WORLD, 1, &proc.rank(), &degree, &target, &degree, MPI_INFO_NULL, false, &newCom);
+
+	return newCom;
+}
+
+void swap(Process& proc, uint8_t& myNum, uint8_t& neiNum, ComDir dir)
+{
+	// Some magic which works. Consider this table
+	// 				DirE E 0
+	// 				DirE O 1
+	//				DirO E 1
+	// 				DirO O 0
+	if ((static_cast<int>(dir) ^ static_cast<int>(proc.isOdd())) == 0)
+		myNum = (myNum > neiNum) ? neiNum : myNum;
+	else
+		myNum = (myNum > neiNum) ? myNum : neiNum;
+}
+
+////////////////////////////////////////////////
+/// Process class
+////////////////////////////////////////////////
+Process::Process(int& argc, char**& argv)
+{
+	MPI_Init(&argc,&argv);
+	MPI_Comm_size(MPI_COMM_WORLD, &mWorldSize);
+	MPI_Comm_rank(MPI_COMM_WORLD, &mRank);
+}
+
+Process::~Process()
+{
+	MPI_Finalize();
+}
+
+int& Process::rank()
+{
+	return mRank;
+}
+
+int& Process::worldSize()
+{
+	return mWorldSize;
+}
+
+bool Process::isRoot()
+{
+	return mRank == ROOT;
+}
+
+bool Process::isOdd()
+{
+	return static_cast<bool>(mRank & 1);
+}
