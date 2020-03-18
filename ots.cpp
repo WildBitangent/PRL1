@@ -217,7 +217,8 @@ MPI_Comm evenTopology(Process& proc)
 
 void swap(Process& proc, uint8_t& myNum, uint8_t& neiNum, ComDir dir)
 {
-	// Some magic which works. Consider this table
+	// Swaps numbers if procesor at rank i, has number greater than procesor at rank i + 1
+	// Some magic which works. Consider this table, which is function of XOR
 	// 				DirE E 0
 	// 				DirE O 1
 	//				DirO E 1
