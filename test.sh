@@ -2,9 +2,9 @@
 
 # flags="-oFast -funroll-loops -frename-registers -fno-exceptions -fomit-frame-pointer -fdelete-null-pointer-checks"
 flags="-O3"
-defs="-D BENCHMARK=1 -D TOPOLOGY=0"
+defs="-D BENCHMARK=0 -D TOPOLOGY=0"
 
-if [ $# -eq 1 ];then 
+if [ $# -eq 1 ] && [ $1 -gt 0 ];then 
     numbers=$1;
 else
     echo "Invalid arguments."

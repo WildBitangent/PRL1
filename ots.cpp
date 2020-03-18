@@ -81,19 +81,17 @@ int sendrecv(Process& process)
 	// Gather sorted numbers 
 	MPI_Gather(&myNumber, 1, MPI_UINT8_T, &numbers[0], 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
 
+	if (process.isRoot())
+	{
 	#if BENCHMARK
 		// measure time, and print
-		if (process.isRoot())
-		{
-			std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
-			std::cout << "Final Time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - begin).count() << "ms" << std::endl;
-		}
+		std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+		std::cout << "Final Time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - begin).count() << "ms" << std::endl;
 	#else
-		// Print result
-		if (process.isRoot())
-			for (const auto& num : numbers)
-				std::cout << static_cast<int>(num) << "\n";
+		for (const auto& num : numbers)
+			std::cout << static_cast<int>(num) << "\n";
 	#endif
+	}
 
 	return EXIT_SUCCESS;
 }
@@ -103,22 +101,33 @@ int topology(Process& process)
 	uint8_t myNumber;
 	uint8_t neighbourNumber;
 
+	#if BENCHMARK
+		// Start clock for benchmark
+		auto start = clk::now();
+		auto begin = start;
+	#endif
+
 	// Load numbers with root process and print them
 	std::vector<uint8_t> numbers;
 	if (process.isRoot())
 	{
 		numbers = loadNumbers("numbers");
 		
-		for (size_t i = 0; i < numbers.size() - 1; ++i)
-			std::cout << static_cast<int>(numbers[i]) << " ";
+		#if BENCHMARK
+			std::cout << "Element count: " << process.worldSize() << std::endl;
+			std::cout << "Load time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+			start = clk::now();
+		#else
+			for (size_t i = 0; i < numbers.size() - 1; ++i)
+				std::cout << static_cast<int>(numbers[i]) << " ";
 
-		std::cout << static_cast<int>(numbers.back()) << std::endl;
+			std::cout << static_cast<int>(numbers.back()) << std::endl;
+		#endif
+
+		#if BENCHMARK
+			start = clk::now();
+		#endif
 	}
-	
-	#if BENCHMARK
-		// Start clock for benchmark
-		auto start = clk::now();
-	#endif
 
 	// Create topologies
 	auto oddCom = oddTopology(process);
@@ -127,7 +136,8 @@ int topology(Process& process)
 	#if BENCHMARK
 		// topology creation time
 		if (process.isRoot())
-			std::cout << "Topology: " << duration_cast<std::chrono::duration<float>>(clk::now() - start).count() << "s" << std::endl;
+			std::cout << "Topology: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+
 		start = clk::now();
 	#endif
 
@@ -149,16 +159,17 @@ int topology(Process& process)
 	// Gather sorted numbers 
 	MPI_Gather(&myNumber, 1, MPI_UINT8_T, &numbers[0], 1, MPI_UINT8_T, Process::ROOT, MPI_COMM_WORLD);
 
+	if (process.isRoot())
+	{
 	#if BENCHMARK
 		// measure time, and print
-		if (process.isRoot())
-			std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float>>(clk::now() - start).count() << "s" << std::endl;
-	#endif
-
-	// Print result
-	if (process.isRoot())
+		std::cout << "Algorithm: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - start).count() << "ms" << std::endl;
+		std::cout << "Final Time: " << duration_cast<std::chrono::duration<float, std::milli>>(clk::now() - begin).count() << "ms" << std::endl;
+	#else
 		for (const auto& num : numbers)
 			std::cout << static_cast<int>(num) << "\n";
+	#endif
+	}
 
 	// todo RAII
 	MPI_Comm_free(&oddCom);
